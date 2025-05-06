@@ -5,6 +5,26 @@ from datetime import datetime
 import matplotlib.pyplot as plt
 import os
 
+# Ensure required folders and files exist
+os.makedirs("exports/trades", exist_ok=True)
+os.makedirs("exports/live", exist_ok=True)
+
+# Create empty trade log if missing
+trade_log_path = "exports/trades/trade_log_breakout.csv"
+if not os.path.exists(trade_log_path):
+    pd.DataFrame(columns=["Symbol", "Entry Date", "Exit Date", "PnL", "Strategy"]).to_csv(trade_log_path, index=False)
+
+# Create empty alert log if missing
+alert_path = "exports/live/alerts_2025-05-06.csv"
+if not os.path.exists(alert_path):
+    pd.DataFrame(columns=["Symbol", "Strategy", "Timestamp", "Signal"]).to_csv(alert_path, index=False)
+
+# Create empty ranking file if missing
+ranked_path = "exports/trades/ranked_symbol_strategy_summary.csv"
+if not os.path.exists(ranked_path):
+    pd.DataFrame(columns=["Symbol", "Strategy", "Total Return %", "Sharpe Ratio", "Max Drawdown"]).to_csv(ranked_path, index=False)
+
+
 st.set_page_config(page_title="Trading Dashboard", layout="wide")
 
 # === Auto-refresh every 60 seconds ===
