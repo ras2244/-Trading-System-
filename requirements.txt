@@ -1,0 +1,10 @@
+streamlit
+pandas
+matplotlib
+yfinance
+numpy
+os
+zipfile
+glob
+matplotlib.pyplot
+seaborn

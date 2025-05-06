@@ -1,0 +1,10 @@
+symbol,breakout_window,atr_factor,total_return,sharpe_ratio
+AAPL,10,1.0,0.0,0
+AAPL,10,1.5,0.0,0
+AAPL,10,2.0,0.0,0
+AAPL,20,1.0,0.0,0
+AAPL,20,1.5,0.0,0
+AAPL,20,2.0,0.0,0
+AAPL,30,1.0,0.0,0
+AAPL,30,1.5,0.0,0
+AAPL,30,2.0,0.0,0
