@@ -1,0 +1,14 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+
+# Streamlit export folders
+exports/
+
+# Environment and auth
+token.yaml
+.env
+
+# OS files
+.DS_Store
+Thumbs.db
