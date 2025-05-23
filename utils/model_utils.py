@@ -1,15 +1,25 @@
+#model_utils.py
+
 import os
 import pandas as pd
 import joblib
+import numpy as np
+import pandas_ta as ta
 from datetime import datetime, timedelta
 from utils.price_data import get_price_data
 from questrade_api import get_all_symbols_with_cache
+import warnings
+from sklearn.exceptions import DataConversionWarning
+
+warnings.filterwarnings("ignore", category=UserWarning)
+warnings.filterwarnings("ignore", category=DataConversionWarning)
+
 
 # Define feature columns used in model training and prediction
 FEATURE_COLUMNS = [
-    "avg_close", "volatility", "momentum",
-    "volume_avg", "delta_1d", "delta_5d",
-    "bb_width", "macd_hist", "atr"
+    "MA20", "STD20", "UpperBB", "LowerBB", "bb_width",
+    "EMA12", "EMA26", "MACD", "Signal", "macd_hist",
+    "atr", "rsi", "vwap", "volatility"
 ]
 
 def save_model(model, filename="stock_selector_model.pkl"):
@@ -41,6 +51,19 @@ def get_symbol_id(symbol, all_symbols=None):
     return None
 
 def add_technical_indicators(df):
+    if "datetime" not in df.columns and "start" in df.columns:
+        df["datetime"] = pd.to_datetime(df["start"], errors="coerce", utc=True)
+
+    if "datetime" in df.columns:
+        df["datetime"] = pd.to_datetime(df["datetime"], errors="coerce", utc=True)
+        if df["datetime"].notna().sum() > 0:
+            df = df.set_index("datetime")
+            df = df.sort_index()
+        else:
+            print("⚠️ datetime column exists but is all NaT, skipping index set.")
+    else:
+        print("⚠️ 'datetime' column missing from DataFrame before technical indicators.")
+
     df["MA20"] = df["close"].rolling(window=20).mean()
     df["STD20"] = df["close"].rolling(window=20).std()
     df["UpperBB"] = df["MA20"] + 2 * df["STD20"]
@@ -58,7 +81,62 @@ def add_technical_indicators(df):
     df["low_close"] = abs(df["low"] - df["close"].shift())
     df["tr"] = df[["high_low", "high_close", "low_close"]].max(axis=1)
     df["atr"] = df["tr"].rolling(window=14).mean()
+
+    try:
+        df["rsi"] = ta.rsi(df["close"], length=14)
+        if not isinstance(df.index, pd.DatetimeIndex):
+            df = df.set_index(pd.to_datetime(df.index, utc=True))
+        df["vwap"] = ta.vwap(high=df["high"], low=df["low"], close=df["close"], volume=df["volume"])
+    except Exception as e:
+        print(f"❌ VWAP/RSI computation failed: {e}")
+
+    try:
+        df["log_return"] = np.log(df["close"] / df["close"].shift(1))
+        df["volatility"] = df["log_return"].rolling(window=20).std()
+    except Exception as e:
+        print(f"❌ Volatility calculation failed: {e}")
+
     return df
+
+
+def generate_training_data(df, forward_days=4, return_threshold=0.01):
+    df = add_technical_indicators(df)
+    try:
+        df["future_return"] = df["close"].shift(-forward_days) / df["close"] - 1
+        df["label"] = (df["future_return"] > return_threshold).astype(int)
+    except Exception as e:
+        print(f"❌ Label generation failed: {e}")
+    return df.dropna().copy()
+
+def score_live_data(df, model_path="exports/stock_selector_model.pkl", return_full_row=False):
+    try:
+        model = joblib.load(model_path)
+    except Exception as e:
+        print(f"❌ Failed to load model: {e}")
+        return None
+
+    df = add_technical_indicators(df)
+    df = df.dropna()
+
+    if df.empty:
+        print("⚠️ No valid data after feature extraction.")
+        return None
+
+    try:
+        X_live = df[FEATURE_COLUMNS]
+    except KeyError as e:
+        print(f"❌ Missing expected features: {e}")
+        return None
+
+    try:
+        probs = model.predict_proba(X_live)[:, 1]  # Probability of class 1
+        df["score"] = probs
+        if return_full_row:
+            return df.reset_index().tail(1).copy()
+        return df[["score"]].tail(1)
+    except Exception as e:
+        print(f"❌ Prediction failed: {e}")
+        return None
 
 def extract_features(df):
     try:
@@ -66,43 +144,32 @@ def extract_features(df):
             df = pd.DataFrame(df)
         if df is None or df.empty or len(df) < 10:
             raise ValueError(f"Not enough data to extract features: got {len(df)} rows")
+        
         df = add_technical_indicators(df)
-        close = df["close"]
-        print(f"🧮 Feature input preview: close={close[-10:].tolist()}")
-        return {
-            "avg_close": close[-10:].mean(),
-            "volatility": close[-10:].std(),
-            "momentum": close.iloc[-1] - close.iloc[-10] if len(close) >= 10 else 0,
-            "volume_avg": df["volume"].iloc[-10:].mean() if len(df) >= 10 else 0,
-            "delta_1d": (close.iloc[-1] - close.iloc[-2]) / close.iloc[-2] if len(close) >= 2 else 0,
-            "delta_5d": (close.iloc[-1] - close.iloc[-5]) / close.iloc[-5] if len(close) >= 5 else 0,
-            "bb_width": df["bb_width"].iloc[-1],
-            "macd_hist": df["macd_hist"].iloc[-1],
-            "atr": df["atr"].iloc[-1]
-        }
+
+        df["avg_close"] = df["close"].rolling(window=10).mean()
+        df["volatility"] = df["close"].rolling(window=10).std()
+        df["momentum"] = df["close"] - df["close"].shift(10)
+        df["volume_avg"] = df["volume"].rolling(window=10).mean()
+        df["delta_1d"] = df["close"].pct_change(periods=1)
+        df["delta_5d"] = df["close"].pct_change(periods=5)
+
+        # Debug preview
+        # print(f"🧮 Feature input preview: close={df['close'].tail(10).tolist()}")
+
+        return df
+
     except Exception as e:
         print(f"❌ Feature extraction failed: {e}")
         return None
 
-def generate_training_data(tickers, days=90):
-    data = []
-    for symbol_obj in tickers:
-        try:
-            symbol_id = symbol_obj["symbolId"]
-            ticker = symbol_obj["symbol"]
-            df = get_price_data(symbol_id, days=days)
-            print("Label distribution:")
-            print(df["label"].value_counts())
-            print(df["label"].value_counts())
-            if df is None or len(df) < 20:
-                print(f"⚠️ Not enough data for {ticker}")
-                continue
-            features = extract_features(df)
-            if features is None:
-                continue
-            future_return = (df["close"].iloc[-1] - df["close"].iloc[-4]) / df["close"].iloc[-4]
-            label = 1 if future_return > 0.02 else 0
-            data.append(features)           
-        except Exception as e:
-            print(f"⚠️ Skipped {ticker}: {e}")
-    return pd.DataFrame(data)
+def get_sp500_tickers(csv_path="data/sp500_constituents.csv"):
+    if not os.path.exists(csv_path):
+        raise FileNotFoundError(f"{csv_path} not found. Please download the S&P 500 constituents file.")
+    
+    df = pd.read_csv(csv_path)
+    if "Symbol" not in df.columns:
+        raise ValueError("CSV must contain a 'Symbol' column.")
+
+    tickers = df["Symbol"].dropna().unique().tolist()
+    return sorted(tickers)

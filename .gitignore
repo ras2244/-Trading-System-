@@ -1,6 +1,37 @@
+# Byte-compiled / cache files
 __pycache__/
-*.pyc
-*.pkl
-.env
-.secrets/
+*.py[cod]
+*.so
+
+# Environments
+.venv/
+venv/
+ENV/
+env/
+*.env
+
+# Secrets
+*.toml
+secrets.toml
 .streamlit/secrets.toml
+
+# Jupyter checkpoints
+.ipynb_checkpoints
+
+# Data
+*.csv
+*.json
+*.pkl
+*.log
+trade_logs/
+
+# System files
+*.dll
+*.exe
+*.db
+*.DS_Store
+Thumbs.db
+
+# VSCode / IDE
+.vscode/
+.idea/

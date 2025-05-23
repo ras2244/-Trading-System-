@@ -1,3 +1,4 @@
+#questrade_api.py
 import requests
 import json
 import time
@@ -23,31 +24,16 @@ logging.basicConfig(
 TOKEN_PATH = "questrade_token.json"
 REFRESH_URL = "https://login.questrade.com/oauth2/token"
 
-def ping_token():
+def ping_api(token, api_server):
     try:
-        access_token, api_server = get_access_token()
-        headers = {"Authorization": f"Bearer {access_token}"}
-
-        response = requests.get(f"{api_server}/v1/time", headers=headers)
-        if response.status_code == 200:
-            logging.debug("Ping successful. Token is valid.")
-            return True
-        else:
-            logging.warning(f"Ping failed. Status code: {response.status_code}")
-            return False
+        url = f"{api_server}/v1/accounts"
+        headers = {"Authorization": f"Bearer {token}"}
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        print("✅ Ping successful - API connection alive.")
+        st.session_state.last_ping = time.time()
     except Exception as e:
-        logging.error(f"Ping error: {e}")
-        return False
-
-def schedule_token_ping(interval=600):  # default: every 10 minutes
-    def ping_loop():
-        while True:
-            logging.info("⏱️ Pinging to keep token alive...")
-            ping_token()
-            time.sleep(interval)
-    
-    thread = threading.Thread(target=ping_loop, daemon=True)
-    thread.start()
+        print(f"❌ Ping failed: {e}")
 
 def save_token(data):
     logging.debug("Saving token to file...")
@@ -139,11 +125,19 @@ def search_symbol(symbol):
     return response.json()
 
 
-def get_quote(symbol_id):
-    access_token, api_server = get_access_token()
+def get_quote_data(ticker, token, api_server):
+    symbol_id = get_symbol_id_by_ticker(ticker, token, api_server)
+    if not symbol_id:
+        raise ValueError(f"Symbol ID not found for {ticker}")
+    
     url = f"{api_server}/v1/markets/quotes/{symbol_id}"
-    response = requests.get(url, headers=get_headers())
-    return response.json()
+    headers = {"Authorization": f"Bearer {token}"}
+    
+    response = requests.get(url, headers=headers)
+    response.raise_for_status()
+    data = response.json()
+    return data.get("quotes", [{}])[0]  # Assuming quotes is a list
+
 
 def get_candles(symbol_id, days=10):
     access_token, api_server = get_access_token()
@@ -164,17 +158,17 @@ def get_candles(symbol_id, days=10):
     response.raise_for_status()
     return response.json().get("candles", [])
 
-def fetch_candles(symbol_id, start_time, end_time, token, api_server):
+def fetch_candles(symbol_id, start_time, end_time, token, api_server, days=90):
     url = f"{api_server}/v1/markets/candles/{symbol_id}"
     headers = {"Authorization": f"Bearer {token}"}
     if not start_time or not end_time:
         end_time = datetime.now(timezone.utc).replace(microsecond=0)
-        days = 90
+        #days = 90
         start_time = end_time - timedelta(days=days)
 
     # Format timestamps correctly
-    start_iso = start_time.astimezone().isoformat(),
-    end_iso = end_time.astimezone().isoformat(),
+    start_iso = start_time.astimezone().isoformat()
+    end_iso = end_time.astimezone().isoformat()
     interval = "OneDay"
 
     params = {
@@ -196,7 +190,7 @@ def fetch_candles(symbol_id, start_time, end_time, token, api_server):
             return pd.DataFrame()
 
         df = pd.DataFrame(candles)
-        df["datetime"] = pd.to_datetime(df["start"])
+        df["datetime"] = pd.to_datetime(df["start"], utc=True)
         return df
 
     except Exception as e:
@@ -277,3 +271,15 @@ def get_symbol_id_by_ticker(ticker, access_token, api_server):
 
     return None
 
+def get_symbol_id(ticker, access_token, api_server):
+    url = f"{api_server}/v1/symbols/search?prefix={ticker}"
+    headers = {"Authorization": f"Bearer {access_token}"}
+    response = requests.get(url, headers=headers)
+    response.raise_for_status()
+    data = response.json()
+    if matches := [
+        item for item in data.get("symbols", []) if item["symbol"] == ticker
+    ]:
+        return matches[0]["symbolId"]
+    else:
+        raise ValueError(f"Symbol ID not found for {ticker}")

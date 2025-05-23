@@ -1,5 +1,4 @@
-# Here's the updated get_price_data() function using Option 1, which returns a dictionary
-# structured like Questrade's native API format.
+# price_data.py
 
 import os
 import requests
@@ -21,8 +20,8 @@ def get_price_data(symbol_id, days=90, interval="OneDay", start_time=None, end_t
         start_time = end_time - timedelta(days=days)
 
     # Format timestamps correctly
-    start_iso = start_time.astimezone().isoformat(),
-    end_iso = end_time.astimezone().isoformat(),
+    start_iso = start_time.astimezone().isoformat()
+    end_iso = end_time.astimezone().isoformat()
 
     params = {
         "startTime": start_iso,
@@ -31,8 +30,8 @@ def get_price_data(symbol_id, days=90, interval="OneDay", start_time=None, end_t
     }
 
     url = f"{api_server}/v1/markets/candles/{symbol_id}"
-    print(f"📡 Requesting candles: {url}")
-    print(f"🧾 Params: {params}")
+    #print(f"📡 Requesting candles: {url}")
+    #print(f"🧾 Params: {params}")
 
     for attempt in range(max_retries):
         try:
@@ -51,6 +50,6 @@ def get_price_data(symbol_id, days=90, interval="OneDay", start_time=None, end_t
             print(f"⚠️ Attempt {attempt + 1} failed with error: {e}")
 
         time.sleep(2 ** attempt)
-
-    print(f"❌ Exhausted retries for symbol_id {symbol_id}")
+    print(f"📊 Fetching {days} days of '{interval}' candles for symbol_id {symbol_id}")
+    #print(f"❌ Exhausted retries for symbol_id {symbol_id}")
     return None
